@@ -1,12 +1,12 @@
-import socket, sys
+import socket
 
 HOST, PORT = "localhost", 9999
 
-data = "Help me "
+data = 1 << 4 | 1
 
 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
     sock.connect((HOST, PORT))
-    sock.sendall(bytes(data + "\n", "utf-8"))
+    sock.sendall(bytes(data))
 
     received = str(sock.recv(1024), "utf-8")
 

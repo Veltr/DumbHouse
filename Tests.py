@@ -23,8 +23,6 @@ cipher = AES.new(key, AES.MODE_EAX)
 nonce = cipher.nonce
 ciphertext, tag = cipher.encrypt_and_digest(data)
 
-
-
 cipher = AES.new(key, AES.MODE_EAX, nonce=nonce)
 
 plaintext = cipher.decrypt(ciphertext)
