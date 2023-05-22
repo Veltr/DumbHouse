@@ -9,18 +9,24 @@ class Device:
     mac = 0
 
     _master = ("", 0)
-    _key = b""
+    _key = b''
     _sock = None
 
     _aes = None
     _aes_decr = None
 
+    # ВРЕМЕННЫЙ КОНСТРУКТОР
     def __init__(self, mac, master, key=b''):
         self.mac = mac
         self._master = master
         self._key = key
 
+    # def __init__(self, mac):
+    #     self.mac = mac
+    #     self.get_all()
 
+    def get_all(self):
+        pass
 
     def first_connection(self):
         self._sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -54,7 +60,7 @@ class Device:
         self._sock.sendall(des.encrypt(self._aes.nonce))
         self._aes_decr = AES.new(self._key, AES.MODE_EAX, nonce=des.decrypt(self._sock.recv(16)))
 
-        self._sock.sendall(self.encrypt(b'abacaba'))
+        # self._sock.sendall(self.encrypt(b'abacaba'))
 
     def encrypt(self, msg):
         return self._aes.encrypt(msg)
@@ -65,15 +71,24 @@ class Device:
     def send_status(self):
         self._sock.sendall(b'\x00')
 
+
     def execute(self):
-        if self._sock is None:
+        if self._aes is None:
             self.first_connection()
-            return
+            # return
 
         while True:
             self.send_status()
             time.sleep(3)
 
+
+# Данные, лежащие в условном EPROM'е:
+# mac
+# зарегестрирован ли где-то, если да, адрес мастера, datetime окончания регистрации
+# ключ, если есть
+
+# Устройство может быть зарегестрировано только на одного мастера
+# Если мастер уже имеется, необходимо перед новым подключением удалить старое
 
 if __name__ == "__main__":
     # mac = 10
