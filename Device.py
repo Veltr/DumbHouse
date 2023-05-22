@@ -1,5 +1,9 @@
+import random
 import socket
 from diffiehellman import DiffieHellman as DH
+from Cryptodome.Cipher import DES, AES
+
+import time
 
 class Device:
     mac = 0
@@ -8,25 +12,33 @@ class Device:
     _key = b""
     _sock = None
 
-    def __init__(self, mac, master):
+    _aes = None
+    _aes_decr = None
+
+    def __init__(self, mac, master, key=b''):
         self.mac = mac
         self._master = master
+        self._key = key
+
+
 
     def first_connection(self):
         self._sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self._sock.connect(self._master)
 
-        out = self.mac.to_bytes(8, 'big') + (1).to_bytes(1, 'big')
-        self._sock.sendall(out)
+        self._sock.sendall(b'\x01' + self.mac.to_bytes(8, 'big'))
 
         t = self._sock.recv(1)
         if t == b'\x01':
             self.key_exchange()
+        elif t == b'\x02':
+            self.aes_nonce_exchange()
         elif t == b'\x00':
             self._sock.detach()
             self._sock = None
             return
 
+        self.send_status()
 
     def key_exchange(self):
         dh = DH(group=14, key_bits=128)
@@ -34,17 +46,37 @@ class Device:
         self._sock.sendall(dh_public)
 
         self._key = dh.generate_shared_key(self._sock.recv(256))[:32]
-        print(self._key)
+        self.aes_nonce_exchange()
+
+    def aes_nonce_exchange(self):
+        self._aes = AES.new(self._key, AES.MODE_EAX)
+        des = DES.new(self._key[:8], DES.MODE_ECB)
+        self._sock.sendall(des.encrypt(self._aes.nonce))
+        self._aes_decr = AES.new(self._key, AES.MODE_EAX, nonce=des.decrypt(self._sock.recv(16)))
+
+        self._sock.sendall(self.encrypt(b'abacaba'))
+
+    def encrypt(self, msg):
+        return self._aes.encrypt(msg)
+
+    def decrypt(self, msg):
+        return self._aes_decr.decrypt(msg)
+
+    def send_status(self):
+        self._sock.sendall(b'\x00')
 
     def execute(self):
-        # if self._sock is None:
-        if not self._key:
+        if self._sock is None:
             self.first_connection()
             return
 
         while True:
-            a = 0
+            self.send_status()
+            time.sleep(3)
+
 
 if __name__ == "__main__":
-    d = Device(10, ("localhost", 9999))
+    # mac = 10
+    mac = random.randint(1, 999999)
+    d = Device(mac, ("localhost", 9999))
     d.execute()

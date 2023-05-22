@@ -1,16 +1,20 @@
 import http.server
 import socket
 import socketserver
+import threading
+import time
 from http import HTTPStatus
 
 from diffiehellman import DiffieHellman as DH
+from Cryptodome.Cipher import DES, AES
 import sqlite3 as sql
 
-# mac - 8 B
 # type - 1 B
-#     0x00 - normal checkout
-#     0x01 - first connection
-#     0x02 - status
+#   0x00 - normal checkout
+#   0x01 - first connection
+#       mac - 8 B
+#   0x02 - status
+
 
 
 class HTTPHandler(http.server.SimpleHTTPRequestHandler):
@@ -48,52 +52,76 @@ class HTTPHandler(http.server.SimpleHTTPRequestHandler):
             return
 
 class TCPHandler(socketserver.BaseRequestHandler):
+    _key = b''
+    _aes = None
+    _aes_decr = None
+
+    def __del__(self):
+        print('I m gone')
 
     def key_exchange(self):
         dh = DH(group=14, key_bits=128)
         dh_public = dh.get_public_key()
-        key = dh.generate_shared_key(self.request.recv(256))
+        self._key = dh.generate_shared_key(self.request.recv(256))[:32]
         self.request.sendall(dh_public)
+        self.aes_nonce_exchange()
 
-        return key[:32]
+    def aes_nonce_exchange(self):
+        self._aes = AES.new(self._key, AES.MODE_EAX)
+        des = DES.new(self._key[:8], DES.MODE_ECB)
+        self._aes_decr = AES.new(self._key, AES.MODE_EAX, nonce=des.decrypt(self.request.recv(16)))
+        self.request.sendall(des.encrypt(self._aes.nonce))
 
-    def handle_first_connection(self, mac):
+        print(self.decrypt(self.request.recv(1024)))
+
+    def encrypt(self, msg):
+        return self._aes.encrypt(msg)
+
+    def decrypt(self, msg):
+        return self._aes_decr.decrypt(msg)
+
+    def handle_first_connection(self):
+        mac = int.from_bytes(self.request.recv(8), 'big')
         device = find_device(mac)
-        key = b''
 
         # 0 - Разрыв соединения, 1 - Подтверждение обмена, 2 - Используем старый ключ
-        if device:
-            self.request.sendall(b'\x02')
-            key = device[1]
-        else:
+        if not device:
             self.request.sendall(b'\x01')
-            key = self.key_exchange()
-            add_device(mac, key)
-
-        print(key)
+            self.key_exchange()
+            add_device(mac, self._key)
+        else:
+            self.request.sendall(b'\x02')
+            self._key = device[1]
+            self.aes_nonce_exchange()
 
     def handle(self):
-        ttt = self.request.recv(1)
+        ty = self.request.recv(1)
 
-        if ttt != b'\0':
+        if ty > b'\x10':
             data = b""
-            data += ttt
+            data += ty
             while True:
                 b = self.request.recv(1)
                 data += b
                 if b == b'\n':
                     break
 
-            print(data)
             HTTPHandler(self.request, self.client_address, self.server, data)
             return
 
-        mac = int.from_bytes(self.request.recv(7), 'big')
-        ty = self.request.recv(1)[0]
-
+        ty = ty[0]
         if ty == 0x01:
-            self.handle_first_connection(mac)
+            self.handle_first_connection()
             return
+        if ty == 0x00:
+            print('Zero')
+
+class Device_Connect:
+    pass
+class ThreadedTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
+    def service_actions(self):
+        print('Hello there')
+
 
 def find_device(mac):
     return db.execute('SELECT * FROM Device where mac == ?', (mac,)).fetchone()
@@ -105,7 +133,7 @@ def add_device(mac, key):
 
 
 def init_db():
-    con = sql.connect(db_path)
+    con = sql.connect(db_path, check_same_thread=False)
     con.execute('''
         CREATE TABLE IF NOT EXISTS Device (
             mac INT PRIMARY KEY,
@@ -119,7 +147,16 @@ def init_db():
 db_path = r"resources/test.db"
 db = init_db()
 
+
 if __name__ == "__main__":
     HOST, PORT = "localhost", 9999
-    with socketserver.TCPServer((HOST, PORT), TCPHandler) as server:
+    with socketserver.TCPServer((HOST, PORT), TCPHandler, True) as server:
+        server.timeout = None
         server.serve_forever()
+
+    # with ThreadedTCPServer((HOST, PORT), TCPHandler) as server:
+    #     server_thread = threading.Thread(target=server.serve_forever, args=[.5])
+    #     server_thread.daemon = True
+    #     server_thread.start()
+    #     server_thread.join()
+

@@ -34,3 +34,23 @@ except ValueError:
     print("Key incorrect or message corrupted")
 
 
+from Cryptodome.Cipher import DES
+
+key = dh1_shared[:8]
+
+
+def pad(text):
+    while len(text) % 8 != 0:
+        text += b' '
+    return text
+
+
+des = DES.new(key, DES.MODE_ECB)
+text = b'Python fucking sucks!'
+padded_text = pad(text)
+
+encrypted_text = des.encrypt(padded_text)
+print(encrypted_text)
+
+data = des.decrypt(encrypted_text)
+print(data)
