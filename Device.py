@@ -1,4 +1,5 @@
 import socket
+from diffiehellman import DiffieHellman as DH
 
 class Device:
     mac = 0
@@ -18,14 +19,26 @@ class Device:
         out = self.mac.to_bytes(8, 'big') + (1).to_bytes(1, 'big')
         self._sock.sendall(out)
 
-        data = self._sock.recv(1024)
-        mac = int.from_bytes(data[:8], 'big')
-        print(mac)
+        t = self._sock.recv(1)
+        if t == b'\x01':
+            self.key_exchange()
+        elif t == b'\x00':
+            self._sock.detach()
+            self._sock = None
+            return
 
 
+    def key_exchange(self):
+        dh = DH(group=14, key_bits=128)
+        dh_public = dh.get_public_key()
+        self._sock.sendall(dh_public)
+
+        self._key = dh.generate_shared_key(self._sock.recv(256))[:32]
+        print(self._key)
 
     def execute(self):
-        if self._sock is None:
+        # if self._sock is None:
+        if not self._key:
             self.first_connection()
             return
 
