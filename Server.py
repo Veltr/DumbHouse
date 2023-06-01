@@ -71,7 +71,7 @@ class TCPHandler(socketserver.BaseRequestHandler):
         self._aes_decr = AES.new(self._key, AES.MODE_EAX, nonce=des.decrypt(self.request.recv(16)))
         self.request.sendall(des.encrypt(self._aes.nonce))
 
-        # print(self.decrypt(self.request.recv(1024)))
+        print(self.decrypt(self.request.recv(1024)))
 
     def encrypt(self, msg):
         return self._aes.encrypt(msg)
@@ -94,36 +94,48 @@ class TCPHandler(socketserver.BaseRequestHandler):
             self.aes_nonce_exchange()
 
     def handle(self):
+        _type = self.request.recv(1)
+
+        _type = _type[0]
+        if _type > 0x10:
+            data = b""
+            data += _type.to_bytes(1, 'big')
+            while True:
+                b = self.request.recv(1)
+                data += b
+                if b == b'\n':
+                    break
+
+            HTTPHandler(self.request, self.client_address, self.server, data)
+            return
+
+        self.server.add_handler(self)
         while True:
-            ty = self.request.recv(1)
-            if not ty:
-                time.sleep(.5)
-                continue
-
-            ty = ty[0]
-            if ty > 0x10:
-                data = b""
-                data += ty.to_bytes(1, 'big')
-                while True:
-                    b = self.request.recv(1)
-                    data += b
-                    if b == b'\n':
-                        break
-
-                HTTPHandler(self.request, self.client_address, self.server, data)
-                return
-
-            elif ty == 0x01:
+            if _type == 0x01:
                 self.handle_first_connection()
-            elif ty == 0x00:
+            elif _type == 0x00:
                 print('Zero ' + str(self.client_address))
 
+            _type = None
+            while not _type:
+                _type = self.request.recv(1)
+                time.sleep(.5)
+            _type = _type[0]
 
 
 class ThreadedTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
+    _handlers = []
     def service_actions(self):
-        # print('Hello there')
+        for i in self._handlers:
+            try:
+                # self._handlers[0].request.sendall(b'\x00')
+                pass
+            except OSError:
+                self._handlers.remove(i)
         pass
+
+    def add_handler(self, h: TCPHandler):
+        self._handlers.append(h)
 
 
 def find_device(mac):

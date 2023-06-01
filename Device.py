@@ -1,3 +1,4 @@
+from datetime import datetime
 import random
 import socket
 from diffiehellman import DiffieHellman as DH
@@ -6,31 +7,47 @@ from Cryptodome.Cipher import DES, AES
 import time
 
 class Device:
-    mac = 0
+    class Master_Data:
+        def __init__(self, address, key=b''):
+            self.address = address
+            self.key = key
 
-    _master = ("", 0)
-    _key = b''
+        address = ("", 0)
+        key = b''
+        aes = None
+        aes_decr = None
+
+    mac = 0
     _sock = None
 
-    _aes = None
-    _aes_decr = None
+    _main_master: Master_Data = None
+    _temp_master: Master_Data = None
+    _temp_datetime: datetime = None
+
+    _cur_master: Master_Data = None
 
     # ВРЕМЕННЫЙ КОНСТРУКТОР
-    def __init__(self, mac, master, key=b''):
-        self.mac = mac
-        self._master = master
-        self._key = key
-
-    # def __init__(self, mac):
+    # def __init__(self, mac, master, key=b''):
     #     self.mac = mac
-    #     self.get_all()
+    #     self._main_master = Device.Master_Data(master, key)
+    #     self._cur_master = self._main_master
 
-    def get_all(self):
-        pass
+    def __init__(self, mac, path):
+        self.mac = mac
+        file = open(path, 'r')
+        s = file.readline().split(':')
+        self._main_master = Device.Master_Data((s[0], int(s[1])))
+        self._cur_master = self._main_master
+        s = file.readline()
+        if s != "":
+            s = s.split(':')
+            self._temp_master = Device.Master_Data((s[0], int(s[1])))
+            self._temp_datetime = datetime.strptime(file.readline()[2:], '%y-%m-%d %H:%M:%S')
+            self._cur_master = self._temp_master
 
     def first_connection(self):
         self._sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self._sock.connect(self._master)
+        self._sock.connect(self._cur_master.address)
 
         self._sock.sendall(b'\x01' + self.mac.to_bytes(8, 'big'))
 
@@ -51,33 +68,37 @@ class Device:
         dh_public = dh.get_public_key()
         self._sock.sendall(dh_public)
 
-        self._key = dh.generate_shared_key(self._sock.recv(256))[:32]
+        self._cur_master.key = dh.generate_shared_key(self._sock.recv(256))[:32]
         self.aes_nonce_exchange()
 
     def aes_nonce_exchange(self):
-        self._aes = AES.new(self._key, AES.MODE_EAX)
-        des = DES.new(self._key[:8], DES.MODE_ECB)
-        self._sock.sendall(des.encrypt(self._aes.nonce))
-        self._aes_decr = AES.new(self._key, AES.MODE_EAX, nonce=des.decrypt(self._sock.recv(16)))
+        self._cur_master.aes = AES.new(self._cur_master.key, AES.MODE_EAX)
+        des = DES.new(self._cur_master.key[:8], DES.MODE_ECB)
+        self._sock.sendall(des.encrypt(self._cur_master.aes.nonce))
+        self._cur_master.aes_decr = AES.new(self._cur_master.key, AES.MODE_EAX, nonce=des.decrypt(self._sock.recv(16)))
 
-        # self._sock.sendall(self.encrypt(b'abacaba'))
+        self._sock.sendall(self.encrypt(b'abacaba'))
 
     def encrypt(self, msg):
-        return self._aes.encrypt(msg)
+        return self._cur_master.aes.encrypt(msg)
 
     def decrypt(self, msg):
-        return self._aes_decr.decrypt(msg)
+        return self._cur_master.aes_decr.decrypt(msg)
 
     def send_status(self):
         self._sock.sendall(b'\x00')
 
 
     def execute(self):
-        if self._aes is None:
-            self.first_connection()
-            # return
+        self.first_connection()
 
         while True:
+            if not(self._temp_datetime is None) and datetime.now() > self._temp_datetime:
+                print('Timeout')
+                return
+
+            t = self._sock.recv(1)
+            print(t)
             self.send_status()
             time.sleep(3)
 
@@ -93,5 +114,9 @@ class Device:
 if __name__ == "__main__":
     # mac = 10
     mac = random.randint(1, 999999)
-    d = Device(mac, ("localhost", 9999))
+    # d = Device(mac, ("localhost", 9999))
+    d = Device(mac, 'd_data.txt')
     d.execute()
+
+
+
